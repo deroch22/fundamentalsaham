@@ -17,20 +17,17 @@ from api_client import (
 import idx_client
 
 from config import SCREENING_CRITERIA, SCORE_THRESHOLD, GEMINI_API_KEY
-import google.generativeai as genai
+from google import genai
 
-# Setup Gemini AI
+# Setup Gemini AI (new SDK: google-genai)
+gemini_client = None
+GEMINI_MODEL = "gemini-2.5-flash"
+
 if GEMINI_API_KEY and GEMINI_API_KEY != "ISI_API_KEY_GEMINI_LO_DISINI":
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel(
-        'gemini-2.5-flash',
-        generation_config=genai.types.GenerationConfig(
-            max_output_tokens=600,
-            temperature=0.7,
-        )
-    )
-else:
-    gemini_model = None
+    try:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Gemini init gagal: {e}")
 
 from macro_engine import analyze_macro
 from technical_engine import analyze_technical
@@ -504,7 +501,7 @@ def _generate_conclusion(s: StockData) -> str:
     import datetime
     month = datetime.datetime.now().strftime("%B")
     
-    if not gemini_model:
+    if not gemini_client:
         return f"\n[Auto] Skor {s.total_score}/100. Fund {s.score_fundamental}/45, " \
                f"Tech {s.score_technical}/15, Bandar: {s.bandar_status}, Season {s.seasonality_win_rate or 0}%"
 
@@ -536,7 +533,14 @@ Aturan:
         import time as _time
         for attempt in range(2):
             try:
-                response = gemini_model.generate_content(prompt)
+                response = gemini_client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        max_output_tokens=600,
+                        temperature=0.7,
+                    )
+                )
                 return f"\n🤖 Gemini AI Insight:\n{response.text.strip()}"
             except Exception as e:
                 if attempt == 0:
