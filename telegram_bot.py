@@ -15,10 +15,10 @@ import asyncio
 import os
 from datetime import datetime, time as dt_time
 
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    filters, ContextTypes
+    CallbackQueryHandler, filters, ContextTypes
 )
 from telegram.constants import ParseMode
 
@@ -173,13 +173,42 @@ async def run_screening_async(tickers: list[str], filters: FilterCriteria = None
 
 # ─── COMMAND HANDLERS ────────────────────────────────────────
 
+def main_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏆 Top 5 Hari Ini", callback_data="top5"),
+         InlineKeyboardButton("⚡ Quick Scan", callback_data="quick")],
+        [InlineKeyboardButton("📊 Full Scan 100 Saham", callback_data="scan")],
+        [InlineKeyboardButton("🏦 Cek Bandar", callback_data="menu_bandar"),
+         InlineKeyboardButton("🔍 Cek Saham", callback_data="menu_cek")],
+        [InlineKeyboardButton("📈 Filter: Bandar Akumulasi", callback_data="filter_accum")],
+        [InlineKeyboardButton("💰 Filter: Asing Masuk", callback_data="filter_foreign")],
+        [InlineKeyboardButton("ℹ️ Status Bot", callback_data="status"),
+         InlineKeyboardButton("❓ Help", callback_data="help")],
+    ])
+
+def bandar_keyboard():
+    rows = []
+    tickers = ["BBCA","BBRI","BMRI","TLKM","UNVR","ADRO","GOTO","ASII","KLBF","ICBP","ISAT","CPIN"]
+    for i in range(0, len(tickers), 4):
+        rows.append([InlineKeyboardButton(t, callback_data=f"bandar_{t}") for t in tickers[i:i+4]])
+    rows.append([InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")])
+    return InlineKeyboardMarkup(rows)
+
+def cek_keyboard():
+    rows = []
+    tickers = ["BBCA","BBRI","BMRI","TLKM","UNVR","ADRO","GOTO","ASII","KLBF","ICBP","ISAT","CPIN"]
+    for i in range(0, len(tickers), 4):
+        rows.append([InlineKeyboardButton(t, callback_data=f"cek_{t}") for t in tickers[i:i+4]])
+    rows.append([InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")])
+    return InlineKeyboardMarkup(rows)
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 *5D Stock Screener Bot*\n\n"
-        "Halo! Gue bisa bantu lo screen saham IDX pake 5 dimensi:\n"
+        "☕ *Ngopi Saham Bot — 5D Stock Screener*\n\n"
         "Macro + Fundamental + Technical + *Bandarmologi* + Seasonality\n\n"
-        "Ketik /help untuk lihat semua perintah.",
-        parse_mode=ParseMode.MARKDOWN
+        "Pilih menu di bawah:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=main_menu_keyboard()
     )
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -187,20 +216,16 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📋 *Daftar Perintah:*\n\n"
         "🔍 *Screening:*\n"
         "  /scan — Screen IDX Watchlist (100 saham)\n"
-        "  /quick — Screen mode cepat (trending + mandatory)\n"
-        "  /top5 — Top 5 saham terbaik hari ini\n\n"
+        "  /quick — Screen mode cepat\n"
+        "  /top5 — Top 5 saham terbaik\n\n"
         "🏦 *Analisis Spesifik:*\n"
-        "  /cek BBCA — Analisis 1 saham penuh\n"
-        "  /bandar BBCA — Cek bandarmologi 1 saham\n\n"
-        "🎯 *Filter Custom:*\n"
-        "  /filter roe:15 per:20 bandar:ACCUMULATING\n"
-        "  /filter sektor:Perbankan score:60\n"
-        "  /filter foreign:BUY margin:10 der:1.0\n\n"
-        "ℹ️ *Info:*\n"
-        "  /status — Status bot & quota API\n\n"
-        "💡 Bot auto-push screening tiap pagi jam 07:00 WIB!"
+        "  /cek BBCA — Analisis 5D penuh\n"
+        "  /bandar BBCA — Cek bandarmologi\n\n"
+        "🎯 *Filter:*\n"
+        "  /filter roe:15 per:20 bandar:ACCUMULATING\n\n"
+        "Atau klik tombol di bawah!"
     )
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN, reply_markup=main_menu_keyboard())
 
 async def cmd_top5(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Kirim top 5 saham dari watchlist."""
@@ -401,6 +426,178 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 
+# ─── AUTH GUARD ─────────────────────────────────────────────
+
+ALLOWED_USERS = set()
+if TELEGRAM_CHAT_ID:
+    ALLOWED_USERS.add(int(TELEGRAM_CHAT_ID))
+
+def is_authorized(user_id: int) -> bool:
+    """Cek apakah user boleh pakai bot. Kosong = semua boleh."""
+    if not ALLOWED_USERS:
+        return True
+    return user_id in ALLOWED_USERS
+
+async def auth_check(update: Update) -> bool:
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        text = "🔒 Bot ini private. Hubungi owner untuk akses."
+        if update.callback_query:
+            await update.callback_query.answer(text, show_alert=True)
+        elif update.message:
+            await update.message.reply_text(text)
+        return False
+    return True
+
+
+# ─── CALLBACK HANDLER (INLINE BUTTONS) ──────────────────────
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not await auth_check(update):
+        return
+
+    data = query.data
+
+    # Menu navigasi
+    if data == "main_menu":
+        await query.edit_message_text(
+            "☕ *Ngopi Saham Bot — 5D Stock Screener*\n\nPilih menu:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_keyboard()
+        )
+    elif data == "menu_bandar":
+        await query.edit_message_text(
+            "🏦 *Pilih saham untuk cek Bandarmologi:*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=bandar_keyboard()
+        )
+    elif data == "menu_cek":
+        await query.edit_message_text(
+            "🔍 *Pilih saham untuk Analisis 5D:*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cek_keyboard()
+        )
+    elif data == "help":
+        await query.edit_message_text(
+            "📋 *Perintah:*\n/scan /quick /top5\n/cek BBCA\n/bandar BBCA\n/filter roe:15 bandar:ACCUMULATING\n\nAtau pakai tombol!",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_keyboard()
+        )
+
+    # Status
+    elif data == "status":
+        now = datetime.now().strftime("%d %b %Y %H:%M WIB")
+        await query.edit_message_text(
+            f"✅ *Online* | {now}\n📋 {len(IDX_WATCHLIST)} saham | 🔄 07:00 WIB",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+        )
+
+    # Screening actions
+    elif data == "top5":
+        await query.edit_message_text("⏳ Scanning top saham... (~2 menit)")
+        try:
+            from pre_filter import MANDATORY_TICKERS
+            tickers = [f"{t}.JK" for t in MANDATORY_TICKERS[:15]]
+            results = await run_screening_async(tickers)
+            text = format_screening_summary(results[:5], "🏆 Top 5 Hari Ini")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "quick":
+        await query.edit_message_text("⏳ Quick scan trending + mandatory... (~5 menit)")
+        try:
+            tickers = build_filtered_universe(max_stocks=50)
+            results = await run_screening_async(tickers)
+            text = format_screening_summary(results, "⚡ Quick Scan")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "scan":
+        await query.edit_message_text("⏳ *Full scan 100 saham...* (~15 menit)\nGue notif pas selesai!", parse_mode=ParseMode.MARKDOWN)
+        try:
+            results = await run_screening_async(IDX_WATCHLIST)
+            text = format_screening_summary(results, "📊 Full Scan")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    # Filter presets
+    elif data == "filter_accum":
+        await query.edit_message_text("⏳ Cari saham bandar AKUMULASI...")
+        try:
+            fc = FilterCriteria(bandar_status="ACCUMULATING")
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered, "🟢 Bandar Akumulasi")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "filter_foreign":
+        await query.edit_message_text("⏳ Cari saham asing masuk (net buy)...")
+        try:
+            fc = FilterCriteria(foreign_flow="BUY")
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered, "💰 Foreign Net Buy")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    # Bandar per saham: bandar_BBCA
+    elif data.startswith("bandar_"):
+        ticker = data.replace("bandar_", "")
+        await query.edit_message_text(f"🔍 Cek bandar *{ticker}*...", parse_mode=ParseMode.MARKDOWN)
+        try:
+            loop = asyncio.get_event_loop()
+            sentiment = await loop.run_in_executor(None, lambda: idx_client.get_bandar_sentiment(ticker))
+            if not sentiment:
+                await query.edit_message_text(f"❌ Data bandar {ticker} tidak tersedia.")
+                return
+            bandar = sentiment.get("bandar_sentiment", {})
+            status = bandar.get("status", "N/A")
+            score = bandar.get("score", "N/A")
+            lines = [
+                f"🏦 *Bandarmologi {ticker}*",
+                f"Status: {bandar_emoji(status)} *{status}*",
+                f"Skor: {score}/10",
+            ]
+            back = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Bandar Lain", callback_data="menu_bandar"),
+                 InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]
+            ])
+            await query.edit_message_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    # Cek per saham: cek_BBCA
+    elif data.startswith("cek_"):
+        ticker = data.replace("cek_", "")
+        await query.edit_message_text(f"⏳ Analisis 5D *{ticker}*...", parse_mode=ParseMode.MARKDOWN)
+        try:
+            loop = asyncio.get_event_loop()
+            stock = await loop.run_in_executor(None, lambda: score_stock(fetch_stock_data(f"{ticker}.JK")))
+            card = format_stock_card(stock)
+            back = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Cek Lain", callback_data="menu_cek"),
+                 InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]
+            ])
+            await query.edit_message_text(card, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+
 # ─── SCHEDULER ──────────────────────────────────────────────
 
 async def daily_morning_push(context: ContextTypes.DEFAULT_TYPE):
@@ -445,7 +642,7 @@ def main():
     
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Register command handlers
+    # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("scan", cmd_scan))
@@ -456,14 +653,17 @@ def main():
     app.add_handler(CommandHandler("filter", cmd_filter))
     app.add_handler(CommandHandler("status", cmd_status))
     
-    # Scheduler: push harian jam 07:00 WIB (UTC+7 = UTC 00:00)
+    # Callback handler for inline buttons
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    
+    # Scheduler
     if TELEGRAM_CHAT_ID:
         app.job_queue.run_daily(
             daily_morning_push,
-            time=dt_time(0, 0, 0),  # 00:00 UTC = 07:00 WIB
+            time=dt_time(0, 0, 0),
             name="morning_push"
         )
-        print(f"✅ Auto-push terjadwal jam 07:00 WIB ke chat ID: {TELEGRAM_CHAT_ID}")
+        print(f"[OK] Auto-push terjadwal jam 07:00 WIB ke chat ID: {TELEGRAM_CHAT_ID}")
     
     print("[BOT] 5D Stock Screener Bot RUNNING...")
     print("   Tekan Ctrl+C untuk stop\n")
