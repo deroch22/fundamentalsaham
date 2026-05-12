@@ -423,7 +423,7 @@ async def cmd_cek(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card = format_stock_card(stock)
         
         if stock.conclusion:
-            card += f"\n\n{stock.conclusion[:500]}"
+            card += f"\n\n{stock.conclusion[:1000]}"
         
         await msg.edit_text(card, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
@@ -897,7 +897,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stock = await loop.run_in_executor(None, lambda: score_stock(fetch_stock_data(f"{ticker}.JK")))
             card = format_stock_card(stock)
             if stock.conclusion:
-                card += f"\n\n{stock.conclusion[:500]}"
+                card += f"\n\n{stock.conclusion[:1000]}"
             back = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Cek Lain", callback_data="menu_cek"),
                  InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]

@@ -511,23 +511,54 @@ def _generate_conclusion(s: StockData) -> str:
         ff = f"Net {'BUY' if s.foreign_flow_7d > 0 else 'SELL'} Rp {abs(s.foreign_flow_7d)/1e9:.1f}M (7 hari)"
 
     prompt = f"""
-Anda adalah Senior Equity Analyst. Buatkan kesimpulan 1 paragraf (4-5 kalimat) profesional dan actionable untuk {s.ticker} ({s.company_name}).
+Kamu adalah mentor saham yang menjelaskan ke PEMULA (orang yang baru belajar saham).
+Buatkan kesimpulan untuk saham {s.ticker} ({s.company_name}).
 
-Data 5 Dimensi:
-1. WHY (Macro): Outlook sektor {s.macro_outlook}. {s.macro_reason}
-2. WHAT (Fundamental): ROE {s.roe}%, Net Margin {s.net_margin}%, EPS Growth {s.earnings_growth}%, PER {s.per}x, PBV {s.pbv}x, DER {s.der}x. OCF: {s.operating_cashflow}, FCF: {s.free_cashflow}. EPS Surprise terakhir: {s.eps_surprise_pct}%. Insight Score: {s.insight_good} good vs {s.insight_bad} bad.
-3. WHERE (Technical): Trend {s.trend}. Harga {s.current_price} IDR, SMA50: {s.sma50}, SMA200: {s.sma200}. RSI {s.rsi}. MACD Signal: {s.macd_signal}.
-4. WHO (Bandarmologi): Status Bandar: {s.bandar_status} (skor {s.bandar_score}/10). Foreign Flow 7d: {ff}. Retail Danger: {s.retail_danger}. Top Buyer: {s.top_buyer_broker}. Top Seller: {s.top_seller_broker}.
-5. WHEN (Seasonality): Win rate {s.seasonality_win_rate}% di bulan {month}.
+DATA ANALISIS:
+- Harga sekarang: Rp {s.current_price}
+- SMA50 (rata-rata 50 hari): {s.sma50}, SMA200 (rata-rata 200 hari): {s.sma200}
+- RSI: {s.rsi} (di bawah 30 = murah, di atas 70 = mahal)
+- Trend: {s.trend}
+- MACD: {s.macd_signal}
 
-Red Flags: {', '.join(s.red_flags) if s.red_flags else 'Tidak ada'}
+- ROE (keuntungan perusahaan): {s.roe}%
+- PER (mahal/murahnya): {s.per}x (di bawah 15 = murah)
+- PBV: {s.pbv}x
+- DER (utang): {s.der}x (di bawah 1 = sehat)
+- Pertumbuhan laba: {s.earnings_growth}%
+- Net Margin: {s.net_margin}%
 
-Aturan:
-- Bahasa Indonesia kasual profesional (gaya analis Telegram eksklusif).
-- WAJIB sebutkan ANGKA SPESIFIK (ROE, PER, foreign flow, bandar status) untuk menopang argumen.
-- Berikan opini TEGAS: akumulasi, hold tunggu diskon, atau skip total.
-- Awali dengan emoji sentimen (🚀, ⚠️, atau ❌).
+- Bandar (pemain besar): {s.bandar_status} (skor {s.bandar_score}/10)
+- Asing 7 hari: {ff}
+- Retail Danger: {s.retail_danger}
+
+- Seasonality bulan {month}: Win rate {s.seasonality_win_rate}%
+- Red Flags: {', '.join(s.red_flags) if s.red_flags else 'Tidak ada'}
+
+Skor Total: {s.total_score}/100
+
+FORMAT WAJIB (ikuti persis):
+
+[emoji] VERDICT: [BUY / WATCH & WAIT / HOLD / SELL/AVOID]
+
+📝 Penjelasan Simpel:
+[2-3 kalimat sederhana kenapa saham ini layak/tidak layak. Pakai bahasa sehari-hari, hindari jargon. Jelaskan seolah ke teman yang baru belajar saham.]
+
+💰 Target Harga:
+• Beli di: Rp [harga entry ideal, biasanya di area support/SMA terdekat]
+• Target jual: Rp [target profit realistis]
+• Stop loss: Rp [batas rugi, biasanya 5-8% di bawah entry]
+
+⚡ Tips:
+[1 kalimat tips praktis untuk saham ini]
+
+ATURAN:
+- Emoji verdict: 🚀 (BUY), 👀 (WATCH), ✋ (HOLD), ❌ (SELL/AVOID)
+- Harga entry/target/stoploss HARUS angka bulat realistis berdasarkan data teknikal
+- Bahasa Indonesia kasual, JANGAN pakai istilah rumit
+- SINGKAT, maksimal 8 baris total
 """
+
 
     try:
         import time as _time
@@ -537,7 +568,7 @@ Aturan:
                     model=GEMINI_MODEL,
                     contents=prompt,
                     config=genai.types.GenerateContentConfig(
-                        max_output_tokens=600,
+                        max_output_tokens=800,
                         temperature=0.7,
                     )
                 )
