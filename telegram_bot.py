@@ -180,11 +180,41 @@ def main_menu_keyboard():
         [InlineKeyboardButton("📊 Full Scan 100 Saham", callback_data="scan")],
         [InlineKeyboardButton("🏦 Cek Bandar", callback_data="menu_bandar"),
          InlineKeyboardButton("🔍 Cek Saham", callback_data="menu_cek")],
-        [InlineKeyboardButton("📈 Filter: Bandar Akumulasi", callback_data="filter_accum")],
-        [InlineKeyboardButton("💰 Filter: Asing Masuk", callback_data="filter_foreign")],
-        [InlineKeyboardButton("ℹ️ Status Bot", callback_data="status"),
-         InlineKeyboardButton("❓ Help", callback_data="help")],
+        [InlineKeyboardButton("🎯 Filter & Screener", callback_data="menu_filter")],
+        [InlineKeyboardButton("❓ Help", callback_data="help")],
     ])
+
+def filter_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏢 Filter Sektor", callback_data="menu_sektor")],
+        [InlineKeyboardButton("🟢 Bandar Akumulasi", callback_data="filter_accum"),
+         InlineKeyboardButton("💰 Asing Masuk", callback_data="filter_foreign")],
+        [InlineKeyboardButton("🔴 Bandar Distribusi", callback_data="filter_distrib"),
+         InlineKeyboardButton("📉 Asing Keluar", callback_data="filter_foreign_sell")],
+        [InlineKeyboardButton("🚀 Multi-Bagger Only", callback_data="filter_multibagger")],
+        [InlineKeyboardButton("💎 ROE > 20% + PER < 15", callback_data="filter_value")],
+        [InlineKeyboardButton("📈 Momentum (Score > 65)", callback_data="filter_momentum")],
+        [InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")],
+    ])
+
+def sektor_keyboard():
+    sektors = [
+        ("🏦 Perbankan",    "sektor_Perbankan"),
+        ("📱 Teknologi",    "sektor_Teknologi"),
+        ("🏥 Kesehatan",    "sektor_Kesehatan"),
+        ("⚡ Energi",       "sektor_Energi"),
+        ("🌾 Agrikultur",   "sektor_Agrikultur"),
+        ("🏗️ Konstruksi",  "sektor_Konstruksi"),
+        ("🏠 Properti",     "sektor_Properti"),
+        ("📡 Telekomunikasi","sektor_Telekomunikasi"),
+        ("🚗 Otomotif",     "sektor_Otomotif"),
+        ("🛒 Konsumer",     "sektor_Konsumer"),
+        ("⛏️ Tambang",     "sektor_Tambang"),
+        ("🧪 Kimia/Industri","sektor_Kimia"),
+    ]
+    rows = [[InlineKeyboardButton(label, callback_data=cb)] for label, cb in sektors]
+    rows.append([InlineKeyboardButton("🔙 Filter Menu", callback_data="menu_filter")])
+    return InlineKeyboardMarkup(rows)
 
 def bandar_keyboard():
     rows = []
@@ -530,8 +560,103 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}")
 
-    # Filter presets
-    elif data == "filter_accum":
+    elif data == "menu_filter":
+        await query.edit_message_text(
+            "🎯 *Filter & Screener*\nPilih filter yang mau lo terapkan:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=filter_menu_keyboard()
+        )
+
+    elif data == "menu_sektor":
+        await query.edit_message_text(
+            "🏢 *Pilih Sektor:*\nHasil scan akan difilter sesuai sektor pilihan.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=sektor_keyboard()
+        )
+
+    # Sektor filter: sektor_Perbankan, sektor_Teknologi, dll
+    elif data.startswith("sektor_"):
+        sektor_name = data.replace("sektor_", "")
+        await query.edit_message_text(f"⏳ Scanning sektor *{sektor_name}*...", parse_mode=ParseMode.MARKDOWN)
+        try:
+            fc = FilterCriteria(sector=sektor_name)
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            if not filtered:
+                await query.edit_message_text(
+                    f"🔍 Sektor *{sektor_name}*\n❌ Tidak ada saham yang lolos.",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Sektor Lain", callback_data="menu_sektor")]])
+                )
+                return
+            text = format_screening_summary(filtered, f"🏢 Sektor: {sektor_name}")
+            back = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Sektor Lain", callback_data="menu_sektor"),
+                 InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]
+            ])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "filter_distrib":
+        await query.edit_message_text("⏳ Cari saham bandar DISTRIBUSI...")
+        try:
+            fc = FilterCriteria(bandar_status="DISTRIBUTING")
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered or results[:5], "🔴 Bandar Distribusi")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Filter", callback_data="menu_filter")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "filter_foreign_sell":
+        await query.edit_message_text("⏳ Cari saham asing KELUAR (net sell)...")
+        try:
+            fc = FilterCriteria(foreign_flow="SELL")
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered or results[:5], "📉 Foreign Net Sell")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Filter", callback_data="menu_filter")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "filter_multibagger":
+        await query.edit_message_text("⏳ Cari MULTI-BAGGER...")
+        try:
+            fc = FilterCriteria(signal="MULTI-BAGGER")
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered or [], "🚀 Multi-Bagger Candidates")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Filter", callback_data="menu_filter")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "filter_value":
+        await query.edit_message_text("⏳ Cari value stock (ROE > 20%, PER < 15)...")
+        try:
+            fc = FilterCriteria(min_roe=20.0, max_per=15.0)
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered or [], "💎 Value Stocks: ROE>20% PER<15")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Filter", callback_data="menu_filter")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "filter_momentum":
+        await query.edit_message_text("⏳ Cari momentum stocks (Score > 65)...")
+        try:
+            fc = FilterCriteria(min_score=65.0)
+            results = await run_screening_async(IDX_WATCHLIST)
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered or [], "📈 Momentum: Score > 65")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Filter", callback_data="menu_filter")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
         await query.edit_message_text("⏳ Cari saham bandar AKUMULASI...")
         try:
             fc = FilterCriteria(bandar_status="ACCUMULATING")
