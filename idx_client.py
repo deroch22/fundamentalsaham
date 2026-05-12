@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 IDX_API_KEY = "579e737afemshf2a850aeb8c8d67p1fc4dbjsnf3d2389897ab"
 IDX_HOST = "indonesia-stock-exchange-idx.p.rapidapi.com"
 
-# Rate limit: 1 request per second (BASIC plan)
-REQUEST_DELAY = 1.2
+# Rate limit: Basic plan = max 10 req/detik tapi sering kena 429
+# Naikkan delay untuk mengurangi error
+REQUEST_DELAY = 2.0  # Antar setiap endpoint call
 
 
 def _request(endpoint: str, retries: int = 2) -> dict | None:
@@ -32,7 +33,7 @@ def _request(endpoint: str, retries: int = 2) -> dict | None:
             conn.close()
 
             if res.status == 429:
-                wait = 3 * (attempt + 1)
+                wait = 5 * (attempt + 1)
                 logger.warning(f"IDX Rate limited. Tunggu {wait}s...")
                 time.sleep(wait)
                 continue

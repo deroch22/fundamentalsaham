@@ -37,21 +37,21 @@ IDX_WATCHLIST = [
 
     # ── CONSUMER STAPLES
     "UNVR.JK", "ICBP.JK", "INDF.JK", "MYOR.JK", "SIDO.JK",
-    "ULTJ.JK", "CLEO.JK", "DMND.JK", "FOOD.JK",
+    "ULTJ.JK", "DMND.JK",
 
     # ── CONSUMER DISCRETIONARY / RETAIL
     "ACES.JK", "MAPI.JK", "ERAA.JK", "LPPF.JK", "RALS.JK",
-    "HERO.JK", "AMRT.JK", "MIDI.JK",
+    "AMRT.JK", "MIDI.JK",
 
     # ── HEALTHCARE & FARMASI
-    "KLBF.JK", "HEAL.JK", "MIKA.JK", "SIDO.JK", "PRDA.JK",
-    "DVLA.JK", "TSPC.JK", "PYFA.JK",
+    "KLBF.JK", "HEAL.JK", "MIKA.JK", "PRDA.JK",
+    "DVLA.JK", "TSPC.JK",
 
     # ── TEKNOLOGI & DIGITAL
-    "GOTO.JK", "BUKA.JK", "EMTK.JK", "DMMX.JK", "INET.JK",
+    "GOTO.JK", "BUKA.JK", "EMTK.JK",
 
     # ── TELEKOMUNIKASI
-    "TLKM.JK", "ISAT.JK", "EXCL.JK", "FREN.JK",
+    "TLKM.JK", "ISAT.JK", "EXCL.JK",
 
     # ── ENERGI & BATUBARA
     "ADRO.JK", "PTBA.JK", "ITMG.JK", "BYAN.JK", "HRUM.JK",
