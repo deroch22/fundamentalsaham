@@ -809,7 +809,7 @@ def main():
         return
     
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
+
     # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
@@ -820,10 +820,22 @@ def main():
     app.add_handler(CommandHandler("bandar", cmd_bandar))
     app.add_handler(CommandHandler("filter", cmd_filter))
     app.add_handler(CommandHandler("status", cmd_status))
-    
+
     # Callback handler for inline buttons
     app.add_handler(CallbackQueryHandler(handle_callback))
-    
+
+    # Error handler — suppress 409 Conflict saat redeploy
+    async def error_handler(update, context):
+        from telegram.error import Conflict, NetworkError
+        err = context.error
+        if isinstance(err, Conflict):
+            logger.warning("409 Conflict: instance lama masih hidup, tunggu sebentar...")
+        elif isinstance(err, NetworkError):
+            logger.warning(f"NetworkError (akan retry): {err}")
+        else:
+            logger.error(f"Error: {err}")
+    app.add_error_handler(error_handler)
+
     # Scheduler
     if TELEGRAM_CHAT_ID:
         app.job_queue.run_daily(
@@ -832,7 +844,7 @@ def main():
             name="morning_push"
         )
         print(f"[OK] Auto-push terjadwal jam 07:00 WIB ke chat ID: {TELEGRAM_CHAT_ID}")
-    
+
     print("[BOT] 5D Stock Screener Bot RUNNING...")
     print("   Tekan Ctrl+C untuk stop\n")
     app.run_polling(drop_pending_updates=True)
