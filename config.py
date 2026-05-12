@@ -9,13 +9,14 @@
 import os
 
 # IDX API (primary source: bandarmologi, teknikal, sentimen, earnings)
-IDX_API_KEY = os.environ.get("IDX_API_KEY", "579e737afemshf2a850aeb8c8d67p1fc4dbjsnf3d2389897ab")
+# Set via Railway Variables: IDX_API_KEY
+IDX_API_KEY = os.environ.get("IDX_API_KEY", "")
 IDX_HOST    = os.environ.get("IDX_HOST",    "indonesia-stock-exchange-idx.p.rapidapi.com")
 
 # Note: Yahoo Finance data sekarang pakai yfinance library (gratis, tanpa RapidAPI)
 
-# Gemini AI
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyDZ8LnsEItmJqkKJHoutYDo7RdfVohXKd4")
+# Gemini AI — set via Railway Variables: GEMINI_API_KEY
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # === TELEGRAM BOT ===
 # Di Railway: tambahkan TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID di Variables
