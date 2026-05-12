@@ -465,7 +465,7 @@ def main():
         )
         print(f"✅ Auto-push terjadwal jam 07:00 WIB ke chat ID: {TELEGRAM_CHAT_ID}")
     
-    print("🤖 5D Stock Screener Bot RUNNING...")
+    print("[BOT] 5D Stock Screener Bot RUNNING...")
     print("   Tekan Ctrl+C untuk stop\n")
     app.run_polling(drop_pending_updates=True)
 
