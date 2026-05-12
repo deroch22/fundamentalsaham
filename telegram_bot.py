@@ -896,6 +896,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             loop = asyncio.get_event_loop()
             stock = await loop.run_in_executor(None, lambda: score_stock(fetch_stock_data(f"{ticker}.JK")))
             card = format_stock_card(stock)
+            if stock.conclusion:
+                card += f"\n\n{stock.conclusion[:500]}"
             back = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Cek Lain", callback_data="menu_cek"),
                  InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]
