@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual env
+venv/
+env/
+.env
+.venv/
+
+# Output files (jangan commit hasil screening)
+hasil_screening.csv
+*.csv
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Railway / secrets (jangan commit API keys!)
+.env.local
+secrets.py
+
+# OS
+.DS_Store
+Thumbs.db
