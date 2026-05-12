@@ -1013,10 +1013,12 @@ def main():
 
     # Error handler — suppress 409 Conflict saat redeploy
     async def error_handler(update, context):
-        from telegram.error import Conflict, NetworkError
+        from telegram.error import Conflict, NetworkError, BadRequest
         err = context.error
         if isinstance(err, Conflict):
             logger.warning("409 Conflict: instance lama masih hidup, tunggu sebentar...")
+        elif isinstance(err, BadRequest) and "not modified" in str(err).lower():
+            pass  # Progress bar kirim konten sama — suppress, normal
         elif isinstance(err, NetworkError):
             logger.warning(f"NetworkError (akan retry): {err}")
         else:

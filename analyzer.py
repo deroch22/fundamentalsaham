@@ -20,8 +20,14 @@ from config import SCREENING_CRITERIA, SCORE_THRESHOLD, GEMINI_API_KEY
 from google import genai
 
 # Setup Gemini AI (new SDK: google-genai)
+# Model chain berdasarkan live test:
 gemini_client = None
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODELS = [
+    "gemini-3-flash-preview",    # ✅ OK — cepat, Pro-level
+    "gemini-3.1-flash-lite",     # ✅ OK — fallback hemat
+    "gemini-2.5-flash",          # ✅ OK — last resort stabil
+    "gemini-3.1-pro-preview",    # 503 sering — coba paling akhir
+]
 
 if GEMINI_API_KEY and GEMINI_API_KEY != "ISI_API_KEY_GEMINI_LO_DISINI":
     try:
@@ -562,23 +568,36 @@ ATURAN:
 
     try:
         import time as _time
-        for attempt in range(2):
-            try:
-                response = gemini_client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=prompt,
-                    config=genai.types.GenerateContentConfig(
-                        max_output_tokens=800,
-                        temperature=0.7,
+        last_error = None
+        for model in GEMINI_MODELS:
+            for attempt in range(2):
+                try:
+                    response = gemini_client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=genai.types.GenerateContentConfig(
+                            max_output_tokens=800,
+                            # Gemini 3: jangan set temperature, biarkan default 1.0
+                            # thinking_level=low → lebih cepat untuk analisis saham
+                            thinking_config=genai.types.ThinkingConfig(
+                                thinking_level="low"
+                            ) if "gemini-3" in model else None,
+                        )
                     )
-                )
-                return f"\n🤖 Gemini AI Insight:\n{response.text.strip()}"
-            except Exception as e:
-                if attempt == 0:
-                    logger.warning(f"Gemini retry: {e}")
-                    _time.sleep(2)
-                else:
-                    raise
+                    return f"\n🤖 Gemini AI Insight:\n{response.text.strip()}"
+                except Exception as e:
+                    last_error = e
+                    err_str = str(e).lower()
+                    if "503" in err_str or "unavailable" in err_str or "overload" in err_str:
+                        # Model overload — coba fallback
+                        logger.warning(f"Gemini {model} overload, coba model lain...")
+                        break
+                    elif attempt == 0:
+                        logger.warning(f"Gemini {model} retry: {e}")
+                        _time.sleep(2)
+                    else:
+                        break
+        raise last_error
     except Exception as e:
         logger.error(f"Gemini API Error: {e}")
         narrative = ""
