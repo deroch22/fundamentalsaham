@@ -31,10 +31,17 @@ from filter_engine import FilterCriteria, apply_filters
 from pre_filter import build_filtered_universe
 import idx_client
 
+import sys
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.WARNING,     # Hanya WARNING ke atas yang dilog
+    stream=sys.stdout          # Railway: stdout = info, bukan error
 )
+# Kurangi noise dari httpx & telegram internals
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("telegram").setLevel(logging.ERROR)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
