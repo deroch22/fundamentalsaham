@@ -625,24 +625,56 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Screening actions
     elif data == "top5":
-        await query.edit_message_text("⏳ Scanning top saham... (~2 menit)")
+        from pre_filter import MANDATORY_TICKERS
+        tickers = [f"{t}.JK" for t in MANDATORY_TICKERS[:15]]
+        total = len(tickers)
+        await query.edit_message_text(
+            f"🏆 *Top 5 — Scan {total} Saham*\n\n`[░░░░░░░░░░] 0/{total}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        async def on_progress(done, total, ticker):
+            pct = done / total
+            bar = '█' * int(pct * 10) + '░' * (10 - int(pct * 10))
+            try:
+                await query.edit_message_text(
+                    f"🏆 *Top 5 — Scan {total} Saham*\n\n"
+                    f"`[{bar}] {done}/{total}` ({int(pct*100)}%)\n"
+                    f"Terakhir: `{ticker}`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                pass
         try:
-            from pre_filter import MANDATORY_TICKERS
-            tickers = [f"{t}.JK" for t in MANDATORY_TICKERS[:15]]
-            results = await run_screening_async(tickers)
+            results = await run_screening_async(tickers, progress_cb=on_progress)
             text = format_screening_summary(results[:5], "🏆 Top 5 Hari Ini")
-            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]])
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}")
 
     elif data == "quick":
-        await query.edit_message_text("⏳ Quick scan trending + mandatory... (~5 menit)")
+        tickers = build_filtered_universe(max_stocks=50)
+        total = len(tickers)
+        await query.edit_message_text(
+            f"⚡ *Quick Scan {total} Saham*\n\n`[░░░░░░░░░░] 0/{total}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        async def on_progress_q(done, total, ticker):
+            pct = done / total
+            bar = '█' * int(pct * 10) + '░' * (10 - int(pct * 10))
+            try:
+                await query.edit_message_text(
+                    f"⚡ *Quick Scan {total} Saham*\n\n"
+                    f"`[{bar}] {done}/{total}` ({int(pct*100)}%)\n"
+                    f"Terakhir: `{ticker}`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                pass
         try:
-            tickers = build_filtered_universe(max_stocks=50)
-            results = await run_screening_async(tickers)
+            results = await run_screening_async(tickers, progress_cb=on_progress_q)
             text = format_screening_summary(results, "⚡ Quick Scan")
-            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]])
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}")
@@ -891,13 +923,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Cek per saham: cek_BBCA
     elif data.startswith("cek_"):
         ticker = data.replace("cek_", "")
-        await query.edit_message_text(f"⏳ Analisis 5D *{ticker}*...", parse_mode=ParseMode.MARKDOWN)
         try:
+            await query.edit_message_text(
+                f"⏳ *Analisis 5D: {ticker}*\n\n"
+                "📊 Mengambil data fundamental...",
+                parse_mode=ParseMode.MARKDOWN
+            )
             loop = asyncio.get_event_loop()
-            stock = await loop.run_in_executor(None, lambda: score_stock(fetch_stock_data(f"{ticker}.JK")))
+            stock_data = await loop.run_in_executor(None, lambda: fetch_stock_data(f"{ticker}.JK"))
+
+            await query.edit_message_text(
+                f"⏳ *Analisis 5D: {ticker}*\n\n"
+                "📊 Data fundamental ✅\n"
+                "📈 Scoring & analisis teknikal...",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            stock = await loop.run_in_executor(None, lambda: score_stock(stock_data))
+
             card = format_stock_card(stock)
             if stock.conclusion:
                 card += f"\n\n{stock.conclusion[:1000]}"
+
             back = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Cek Lain", callback_data="menu_cek"),
                  InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]
