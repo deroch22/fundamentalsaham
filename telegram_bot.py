@@ -157,25 +157,35 @@ def format_screening_summary(results: list[StockData], title: str = "Hasil Scree
 
 # ─── SCREENER RUNNER ────────────────────────────────────────
 
-async def run_screening_async(tickers: list[str], filters: FilterCriteria = None) -> list[StockData]:
-    """Jalankan screening di background thread."""
+async def run_screening_async(
+    tickers: list[str],
+    filters: FilterCriteria = None,
+    progress_cb=None          # async callback(done, total, latest_ticker)
+) -> list[StockData]:
+    """Jalankan screening di background thread dengan live progress."""
     loop = asyncio.get_event_loop()
-    
-    def _run():
-        results = []
-        for t in tickers:
+    results = []
+    total = len(tickers)
+
+    for i, t in enumerate(tickers, 1):
+        try:
+            stock = await loop.run_in_executor(None, lambda tk=t: score_stock(fetch_stock_data(tk)))
+            results.append(stock)
+        except Exception as e:
+            logger.error(f"Error {t}: {e}")
+
+        # Update progress setiap 5 saham atau di saham terakhir
+        if progress_cb and (i % 5 == 0 or i == total):
             try:
-                stock = fetch_stock_data(t)
-                stock = score_stock(stock)
-                results.append(stock)
-            except Exception as e:
-                logger.error(f"Error {t}: {e}")
-        results.sort(key=lambda x: x.total_score, reverse=True)
-        if filters:
-            results = apply_filters(results, filters)
-        return results
-    
-    return await loop.run_in_executor(None, _run)
+                await progress_cb(i, total, t.replace(".JK", ""))
+            except Exception:
+                pass
+
+    results.sort(key=lambda x: x.total_score, reverse=True)
+    if filters:
+        results = apply_filters(results, filters)
+    return results
+
 
 
 # ─── COMMAND HANDLERS ────────────────────────────────────────
@@ -280,38 +290,64 @@ async def cmd_top5(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error: {e}")
 
 async def cmd_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Scan full IDX Watchlist."""
-    await update.message.reply_text(
-        "⏳ *Screening 100 saham dimulai...*\n"
-        "Estimasi: ~15-20 menit. Gue notif pas selesai!",
+    """Scan full IDX Watchlist dengan live progress."""
+    total = len(IDX_WATCHLIST)
+    msg = await update.message.reply_text(
+        f"📊 *Full Scan {total} Saham*\n"
+        f"\n`[░░░░░░░░░░] 0/{total}`\n\n"
+        "Estimasi ~15-20 menit. Progress update otomatis!",
         parse_mode=ParseMode.MARKDOWN
     )
-    
+
+    async def on_progress(done, total, ticker):
+        pct = done / total
+        bar = '█' * int(pct * 10) + '░' * (10 - int(pct * 10))
+        await msg.edit_text(
+            f"📊 *Full Scan {total} Saham*\n"
+            f"\n`[{bar}] {done}/{total}` ({int(pct*100)}%)\n"
+            f"Terakhir: `{ticker}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
     try:
-        results = await run_screening_async(IDX_WATCHLIST)
-        
-        # Kirim summary dulu
-        summary = format_screening_summary(results, "📊 Hasil Screening Penuh")
-        await update.message.reply_text(summary, parse_mode=ParseMode.MARKDOWN)
-        
-        # Kirim detail card tiap MULTI-BAGGER & WATCH
+        results = await run_screening_async(IDX_WATCHLIST, progress_cb=on_progress)
+        summary = format_screening_summary(results, "📊 Hasil Full Scan")
+        back = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]])
+        await msg.edit_text(summary, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+
         worthy = [s for s in results if s.total_score >= SCORE_THRESHOLD["watch"]][:5]
         for s in worthy:
             card = format_stock_card(s)
             await update.message.reply_text(card, parse_mode=ParseMode.MARKDOWN)
             await asyncio.sleep(0.5)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error scanning: {e}")
+        await msg.edit_text(f"❌ Error scanning: {e}")
 
 async def cmd_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Scan mode quick."""
-    msg = await update.message.reply_text("⏳ Quick scan: ambil trending + mandatory list...")
-    
+    """Scan mode quick dengan live progress."""
+    tickers = build_filtered_universe(max_stocks=50)
+    total = len(tickers)
+    msg = await update.message.reply_text(
+        f"⚡ *Quick Scan {total} Saham*\n"
+        f"\n`[░░░░░░░░░░] 0/{total}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    async def on_progress(done, total, ticker):
+        pct = done / total
+        bar = '█' * int(pct * 10) + '░' * (10 - int(pct * 10))
+        await msg.edit_text(
+            f"⚡ *Quick Scan {total} Saham*\n"
+            f"\n`[{bar}] {done}/{total}` ({int(pct*100)}%)\n"
+            f"Terakhir: `{ticker}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
     try:
-        tickers = build_filtered_universe(max_stocks=50)
-        results = await run_screening_async(tickers)
+        results = await run_screening_async(tickers, progress_cb=on_progress)
         text = format_screening_summary(results, "⚡ Quick Scan")
-        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+        back = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]])
+        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
     except Exception as e:
         await msg.edit_text(f"❌ Error: {e}")
 

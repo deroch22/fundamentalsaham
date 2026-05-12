@@ -11,8 +11,8 @@ from config import RAPIDAPI_KEY, RAPIDAPI_HOST
 
 logger = logging.getLogger(__name__)
 
-# Delay antar request agar tidak kena rate limit
-REQUEST_DELAY = 0.5
+# Delay antar request - Yahoo Finance Basic plan perlu lebih lambat
+REQUEST_DELAY = 1.5
 
 
 def _request(endpoint: str, retries: int = 3) -> dict | None:
@@ -30,7 +30,7 @@ def _request(endpoint: str, retries: int = 3) -> dict | None:
             conn.close()
 
             if res.status == 429:
-                wait = 3 * (attempt + 1)
+                wait = 5 * (attempt + 1)
                 logger.warning(f"Rate limited. Tunggu {wait}s...")
                 time.sleep(wait)
                 continue
