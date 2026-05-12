@@ -233,21 +233,75 @@ def sektor_keyboard():
     rows.append([InlineKeyboardButton("🔙 Filter Menu", callback_data="menu_filter")])
     return InlineKeyboardMarkup(rows)
 
+# Mapping sektor → saham (tanpa .JK)
+SEKTOR_TICKERS = {
+    "Perbankan":      ["BBCA","BBRI","BMRI","BBNI","BRIS","BJTM","BDMN","NISP","MEGA","AGRO"],
+    "Konsumer":       ["UNVR","ICBP","INDF","MYOR","SIDO","ULTJ","DMND","ACES","MAPI","ERAA","LPPF","RALS","AMRT","MIDI"],
+    "Kesehatan":      ["KLBF","HEAL","MIKA","PRDA","DVLA","TSPC"],
+    "Teknologi":      ["GOTO","BUKA","EMTK"],
+    "Telekomunikasi": ["TLKM","ISAT","EXCL"],
+    "Energi":         ["ADRO","PTBA","ITMG","BYAN","HRUM","KKGI","GEMS","MEDC","ENRG","RUIS"],
+    "Tambang":        ["INCO","ANTM","TINS","MDKA","NCKL","AMMN"],
+    "Konstruksi":     ["JSMR","WIKA","PTPP","ADHI","WSKT"],
+    "Properti":       ["BSDE","SMRA","CTRA","PWON","LPKR","SMGR","INTP","WSBP"],
+    "Otomotif":       ["ASII","AUTO","SMSM"],
+    "Agrikultur":     ["AALI","LSIP","SSMS","TBLA","CPIN","JPFA","MAIN"],
+    "Industri":       ["TPIA","BRPT","DPNS","WOOD","INKP","TKIM","PGAS","MARK","CMRY"],
+}
+
+SEKTOR_EMOJI = {
+    "Perbankan": "🏦", "Konsumer": "🛒", "Kesehatan": "🏥",
+    "Teknologi": "📱", "Telekomunikasi": "📡", "Energi": "⚡",
+    "Tambang": "⛏️", "Konstruksi": "🏗️", "Properti": "🏠",
+    "Otomotif": "🚗", "Agrikultur": "🌾", "Industri": "🧪",
+}
+
 def bandar_keyboard():
+    """Pilih sektor dulu → baru lihat saham."""
     rows = []
-    tickers = ["BBCA","BBRI","BMRI","TLKM","UNVR","ADRO","GOTO","ASII","KLBF","ICBP","ISAT","CPIN"]
-    for i in range(0, len(tickers), 4):
-        rows.append([InlineKeyboardButton(t, callback_data=f"bandar_{t}") for t in tickers[i:i+4]])
+    sektors = list(SEKTOR_TICKERS.keys())
+    for i in range(0, len(sektors), 2):
+        row = []
+        for s in sektors[i:i+2]:
+            emoji = SEKTOR_EMOJI.get(s, "📊")
+            row.append(InlineKeyboardButton(f"{emoji} {s}", callback_data=f"bsektor_{s}"))
+        rows.append(row)
     rows.append([InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")])
     return InlineKeyboardMarkup(rows)
 
-def cek_keyboard():
+def bandar_sektor_keyboard(sektor: str):
+    """Saham-saham dalam sektor tertentu untuk cek bandar."""
+    tickers = SEKTOR_TICKERS.get(sektor, [])
     rows = []
-    tickers = ["BBCA","BBRI","BMRI","TLKM","UNVR","ADRO","GOTO","ASII","KLBF","ICBP","ISAT","CPIN"]
     for i in range(0, len(tickers), 4):
-        rows.append([InlineKeyboardButton(t, callback_data=f"cek_{t}") for t in tickers[i:i+4]])
+        rows.append([InlineKeyboardButton(t, callback_data=f"bandar_{t}") for t in tickers[i:i+4]])
+    emoji = SEKTOR_EMOJI.get(sektor, "📊")
+    rows.append([InlineKeyboardButton(f"🔍 Scan Semua Bandar {emoji} {sektor}", callback_data=f"bscan_{sektor}")])
+    rows.append([InlineKeyboardButton("🔙 Pilih Sektor", callback_data="menu_bandar")])
+    return InlineKeyboardMarkup(rows)
+
+def cek_keyboard():
+    """Pilih sektor dulu → baru lihat saham untuk analisis 5D."""
+    rows = []
+    sektors = list(SEKTOR_TICKERS.keys())
+    for i in range(0, len(sektors), 2):
+        row = []
+        for s in sektors[i:i+2]:
+            emoji = SEKTOR_EMOJI.get(s, "📊")
+            row.append(InlineKeyboardButton(f"{emoji} {s}", callback_data=f"csektor_{s}"))
+        rows.append(row)
     rows.append([InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")])
     return InlineKeyboardMarkup(rows)
+
+def cek_sektor_keyboard(sektor: str):
+    """Saham-saham dalam sektor tertentu untuk analisis 5D."""
+    tickers = SEKTOR_TICKERS.get(sektor, [])
+    rows = []
+    for i in range(0, len(tickers), 4):
+        rows.append([InlineKeyboardButton(t, callback_data=f"cek_{t}") for t in tickers[i:i+4]])
+    rows.append([InlineKeyboardButton("🔙 Pilih Sektor", callback_data="menu_cek")])
+    return InlineKeyboardMarkup(rows)
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -723,6 +777,90 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}")
 
+    # Bandar sektor picker: bsektor_Perbankan
+    elif data.startswith("bsektor_"):
+        sektor = data.replace("bsektor_", "")
+        emoji = SEKTOR_EMOJI.get(sektor, "📊")
+        count = len(SEKTOR_TICKERS.get(sektor, []))
+        await query.edit_message_text(
+            f"{emoji} *Sektor {sektor}* — {count} saham\n\n"
+            "Pilih saham atau scan semua bandar sekaligus:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=bandar_sektor_keyboard(sektor)
+        )
+
+    # Cek sektor picker: csektor_Perbankan
+    elif data.startswith("csektor_"):
+        sektor = data.replace("csektor_", "")
+        emoji = SEKTOR_EMOJI.get(sektor, "📊")
+        count = len(SEKTOR_TICKERS.get(sektor, []))
+        await query.edit_message_text(
+            f"{emoji} *Sektor {sektor}* — {count} saham\n\n"
+            "Pilih saham untuk analisis 5D:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cek_sektor_keyboard(sektor)
+        )
+
+    # Scan SEMUA bandar di 1 sektor: bscan_Perbankan
+    elif data.startswith("bscan_"):
+        sektor = data.replace("bscan_", "")
+        tickers = SEKTOR_TICKERS.get(sektor, [])
+        emoji = SEKTOR_EMOJI.get(sektor, "📊")
+        total = len(tickers)
+        await query.edit_message_text(
+            f"🔍 *Scan Bandar {emoji} {sektor}*\n\n"
+            f"`[░░░░░░░░░░] 0/{total}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        try:
+            results = []
+            for i, t in enumerate(tickers, 1):
+                try:
+                    loop = asyncio.get_event_loop()
+                    sentiment = await loop.run_in_executor(
+                        None, lambda tk=t: idx_client.get_bandar_sentiment(tk)
+                    )
+                    if sentiment:
+                        bandar = sentiment.get("bandar_sentiment", {})
+                        results.append({
+                            "ticker": t,
+                            "status": bandar.get("status", "N/A"),
+                            "score":  bandar.get("score", 0),
+                        })
+                except Exception:
+                    pass
+
+                # Update progress tiap 3 saham
+                if i % 3 == 0 or i == total:
+                    pct = i / total
+                    bar = '█' * int(pct * 10) + '░' * (10 - int(pct * 10))
+                    try:
+                        await query.edit_message_text(
+                            f"🔍 *Scan Bandar {emoji} {sektor}*\n\n"
+                            f"`[{bar}] {i}/{total}` ({int(pct*100)}%)\n"
+                            f"Terakhir: `{t}`",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    except Exception:
+                        pass
+
+            # Format hasil
+            results.sort(key=lambda x: x.get("score", 0), reverse=True)
+            lines = [f"🏦 *Bandarmologi {emoji} Sektor {sektor}*\n"]
+            for r in results:
+                em = bandar_emoji(r["status"])
+                lines.append(f"{em} `{r['ticker']:5s}` — *{r['status']}* (skor: {r['score']})")
+            if not results:
+                lines.append("❌ Tidak ada data bandar tersedia.")
+
+            back = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Sektor Lain", callback_data="menu_bandar"),
+                 InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]
+            ])
+            await query.edit_message_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
     # Bandar per saham: bandar_BBCA
     elif data.startswith("bandar_"):
         ticker = data.replace("bandar_", "")
@@ -748,6 +886,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=back)
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}")
+
 
     # Cek per saham: cek_BBCA
     elif data.startswith("cek_"):
