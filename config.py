@@ -8,14 +8,11 @@
 
 import os
 
-# === API CREDENTIALS ===
-# Yahoo Finance (legacy, untuk seasonality chart 5 tahun)
-RAPIDAPI_KEY  = os.environ.get("RAPIDAPI_KEY",  "f4847705f4msh2a3160f9508003dp1575a8jsnc195177821ee")
-RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST", "yahoo-finance166.p.rapidapi.com")
-
 # IDX API (primary source: bandarmologi, teknikal, sentimen, earnings)
 IDX_API_KEY = os.environ.get("IDX_API_KEY", "579e737afemshf2a850aeb8c8d67p1fc4dbjsnf3d2389897ab")
 IDX_HOST    = os.environ.get("IDX_HOST",    "indonesia-stock-exchange-idx.p.rapidapi.com")
+
+# Note: Yahoo Finance data sekarang pakai yfinance library (gratis, tanpa RapidAPI)
 
 # Gemini AI
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyDZ8LnsEItmJqkKJHoutYDo7RdfVohXKd4")

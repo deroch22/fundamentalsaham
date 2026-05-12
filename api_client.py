@@ -1,141 +1,233 @@
 """
-API Client - Yahoo Finance via RapidAPI (yahoo-finance166)
-Endpoint yang sudah terverifikasi berfungsi.
+API Client - Yahoo Finance via yfinance library (GRATIS, no RapidAPI quota)
+Menggantikan api_client berbasis RapidAPI yang sering kena rate limit.
 """
 
-import http.client
-import json
-import time
 import logging
-from config import RAPIDAPI_KEY, RAPIDAPI_HOST
+import time
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-# Delay antar request - Yahoo Finance Basic plan perlu lebih lambat
-REQUEST_DELAY = 1.5
+# Cache sederhana in-memory per session
+_cache: dict = {}
+CACHE_TTL = 3600  # 1 jam
 
 
-def _request(endpoint: str, retries: int = 3) -> dict | None:
-    """Generic GET request ke RapidAPI dengan retry."""
-    headers = {
-        "x-rapidapi-key": RAPIDAPI_KEY,
-        "x-rapidapi-host": RAPIDAPI_HOST,
-    }
-    for attempt in range(retries):
-        try:
-            conn = http.client.HTTPSConnection(RAPIDAPI_HOST, timeout=15)
-            conn.request("GET", endpoint, headers=headers)
-            res = conn.getresponse()
-            raw = res.read().decode("utf-8")
-            conn.close()
+def _get_ticker(ticker: str) -> yf.Ticker:
+    return yf.Ticker(ticker)
 
-            if res.status == 429:
-                wait = 5 * (attempt + 1)
-                logger.warning(f"Rate limited. Tunggu {wait}s...")
-                time.sleep(wait)
-                continue
-            if res.status != 200:
-                logger.error(f"HTTP {res.status} untuk {endpoint}")
-                return None
 
-            return json.loads(raw)
-
-        except Exception as e:
-            logger.warning(f"Attempt {attempt+1} gagal: {e}")
-            time.sleep(1.5)
+def _cached(key: str, ttl: int = CACHE_TTL):
+    """Decorator-style cache check."""
+    entry = _cache.get(key)
+    if entry:
+        data, ts = entry
+        if time.time() - ts < ttl:
+            return data
     return None
 
 
-def _quote_summary_result(data: dict) -> dict | None:
-    """Ambil result pertama dari format quoteSummary standard."""
-    try:
-        result = data.get("quoteSummary", {}).get("result", [])
-        return result[0] if result else None
-    except Exception:
-        return None
+def _store(key: str, data):
+    _cache[key] = (data, time.time())
+    return data
 
+
+# ═══════════════════════════════════════════════════════════
+#  DATA FETCHERS
+# ═══════════════════════════════════════════════════════════
 
 def get_financial_data(ticker: str) -> dict | None:
-    """
-    ROE, ROA, margins, growth, rekomendasi analis, target price.
-    Key: financialData
-    """
-    data = _request(f"/api/stock/get-financial-data?region=ID&symbol={ticker}")
-    time.sleep(REQUEST_DELAY)
-    if not data:
-        return None
-    result = _quote_summary_result(data)
-    return result.get("financialData") if result else None
+    """ROE, ROA, margins, growth, target price dari yfinance."""
+    key = f"financial_{ticker}"
+    cached = _cached(key)
+    if cached is not None:
+        return cached
+
+    try:
+        t = _get_ticker(ticker)
+        info = t.info
+        if not info or info.get("regularMarketPrice") is None:
+            return _store(key, None)
+
+        data = {
+            "returnOnEquity":        {"raw": info.get("returnOnEquity")},
+            "returnOnAssets":        {"raw": info.get("returnOnAssets")},
+            "profitMargins":         {"raw": info.get("profitMargins")},
+            "operatingMargins":      {"raw": info.get("operatingMargins")},
+            "revenueGrowth":         {"raw": info.get("revenueGrowth")},
+            "earningsGrowth":        {"raw": info.get("earningsGrowth")},
+            "currentRatio":          {"raw": info.get("currentRatio")},
+            "debtToEquity":          {"raw": info.get("debtToEquity")},
+            "targetMeanPrice":       {"raw": info.get("targetMeanPrice")},
+            "recommendationMean":    {"raw": info.get("recommendationMean")},
+            "freeCashflow":          {"raw": info.get("freeCashflow")},
+            "totalRevenue":          {"raw": info.get("totalRevenue")},
+            "grossProfits":          {"raw": info.get("grossProfits")},
+        }
+        return _store(key, data)
+    except Exception as e:
+        logger.warning(f"get_financial_data {ticker}: {e}")
+        return _store(key, None)
 
 
 def get_statistics(ticker: str) -> dict | None:
-    """
-    PER, PBV, DER, short ratio, beta, earnings growth.
-    Keys: defaultKeyStatistics, financialData
-    """
-    data = _request(f"/api/stock/get-statistics?region=ID&symbol={ticker}")
-    time.sleep(REQUEST_DELAY)
-    if not data:
-        return None
-    result = _quote_summary_result(data)
-    return result if result else None
+    """PER, PBV, DER, beta, market cap."""
+    key = f"stats_{ticker}"
+    cached = _cached(key)
+    if cached is not None:
+        return cached
+
+    try:
+        t = _get_ticker(ticker)
+        info = t.info
+        if not info:
+            return _store(key, None)
+
+        result = {
+            "defaultKeyStatistics": {
+                "trailingEps":          {"raw": info.get("trailingEps")},
+                "forwardEps":           {"raw": info.get("forwardEps")},
+                "priceToBook":          {"raw": info.get("priceToBook")},
+                "beta":                 {"raw": info.get("beta")},
+                "earningsGrowth":       {"raw": info.get("earningsGrowth")},
+                "revenueGrowth":        {"raw": info.get("revenueGrowth")},
+                "52WeekChange":         {"raw": info.get("52WeekChange")},
+            },
+            "financialData": {
+                "debtToEquity":         {"raw": info.get("debtToEquity")},
+                "currentRatio":         {"raw": info.get("currentRatio")},
+                "returnOnEquity":       {"raw": info.get("returnOnEquity")},
+            },
+            "summaryDetail": {
+                "trailingPE":           {"raw": info.get("trailingPE")},
+                "forwardPE":            {"raw": info.get("forwardPE")},
+                "dividendYield":        {"raw": info.get("dividendYield")},
+                "marketCap":            {"raw": info.get("marketCap")},
+                "volume":               {"raw": info.get("volume")},
+            },
+        }
+        return _store(key, result)
+    except Exception as e:
+        logger.warning(f"get_statistics {ticker}: {e}")
+        return _store(key, None)
 
 
 def get_price(ticker: str) -> dict | None:
-    """
-    Harga pasar saat ini, market cap, volume.
-    Key: price
-    """
-    data = _request(f"/api/stock/get-price?region=ID&symbol={ticker}")
-    time.sleep(REQUEST_DELAY)
-    if not data:
-        return None
-    result = _quote_summary_result(data)
-    return result.get("price") if result else None
+    """Harga, market cap, volume."""
+    key = f"price_{ticker}"
+    cached = _cached(key, ttl=300)  # 5 menit untuk harga
+    if cached is not None:
+        return cached
+
+    try:
+        t = _get_ticker(ticker)
+        info = t.info
+        if not info:
+            return _store(key, None)
+
+        data = {
+            "regularMarketPrice":       {"raw": info.get("regularMarketPrice") or info.get("currentPrice")},
+            "regularMarketVolume":      {"raw": info.get("regularMarketVolume")},
+            "regularMarketChangePercent": {"raw": info.get("regularMarketChangePercent")},
+            "marketCap":                {"raw": info.get("marketCap")},
+            "shortName":                info.get("shortName", ticker),
+            "currency":                 info.get("currency", "IDR"),
+        }
+        return _store(key, data)
+    except Exception as e:
+        logger.warning(f"get_price {ticker}: {e}")
+        return _store(key, None)
 
 
 def get_fundamentals(ticker: str) -> dict | None:
-    """
-    Profil perusahaan, sektor, industri, dan JAJARAN DIREKSI.
-    Key: assetProfile (berisi companyOfficers)
-    """
-    data = _request(f"/api/stock/get-fundamentals?region=ID&symbol={ticker}")
-    time.sleep(REQUEST_DELAY)
-    if not data:
-        return None
-    result = _quote_summary_result(data)
-    return result.get("assetProfile") if result else None
+    """Sektor, industri, profil perusahaan."""
+    key = f"profile_{ticker}"
+    cached = _cached(key, ttl=86400)  # 24 jam
+    if cached is not None:
+        return cached
+
+    try:
+        t = _get_ticker(ticker)
+        info = t.info
+        if not info:
+            return _store(key, None)
+
+        data = {
+            "sector":       info.get("sector", ""),
+            "industry":     info.get("industry", ""),
+            "longName":     info.get("longName", ""),
+            "fullTimeEmployees": info.get("fullTimeEmployees"),
+            "longBusinessSummary": info.get("longBusinessSummary", ""),
+        }
+        return _store(key, data)
+    except Exception as e:
+        logger.warning(f"get_fundamentals {ticker}: {e}")
+        return _store(key, None)
 
 
 def get_earnings(ticker: str) -> dict | None:
-    """
-    Laporan laba per kuartal vs estimasi analis.
-    Key: earnings
-    """
-    data = _request(f"/api/stock/get-earnings?region=ID&symbol={ticker}")
-    time.sleep(REQUEST_DELAY)
-    if not data:
-        return None
-    result = _quote_summary_result(data)
-    return result.get("earnings") if result else None
+    """Data earnings historis."""
+    key = f"earnings_{ticker}"
+    cached = _cached(key, ttl=86400)
+    if cached is not None:
+        return cached
+
+    try:
+        t = _get_ticker(ticker)
+        info = t.info
+        data = {
+            "earningsGrowth":    info.get("earningsGrowth"),
+            "revenueGrowth":     info.get("revenueGrowth"),
+            "trailingEps":       info.get("trailingEps"),
+            "forwardEps":        info.get("forwardEps"),
+        }
+        return _store(key, data)
+    except Exception as e:
+        logger.warning(f"get_earnings {ticker}: {e}")
+        return _store(key, None)
 
 
 def get_chart(ticker: str, interval: str = "1d", range_: str = "5y") -> dict | None:
-    """
-    Data harga historis untuk momentum, technical (SMA/RSI), dan seasonality.
-    Default 5y untuk mendapatkan probabilitas historis yang cukup.
-    """
-    data = _request(
-        f"/api/stock/get-chart?symbol={ticker}&interval={interval}&range={range_}&region=ID"
-    )
-    time.sleep(REQUEST_DELAY)
-    if not data:
-        return None
+    """Data OHLCV historis untuk teknikal & seasonality."""
+    key = f"chart_{ticker}_{range_}"
+    cached = _cached(key, ttl=3600)
+    if cached is not None:
+        return cached
+
     try:
-        result = data.get("chart", {}).get("result", [])
-        return result[0] if result else None
-    except Exception:
-        return None
+        t = _get_ticker(ticker)
+        # Map range_ ke period yfinance
+        period_map = {"5y": "5y", "1y": "1y", "6mo": "6mo", "3mo": "3mo", "1mo": "1mo"}
+        period = period_map.get(range_, "5y")
+        hist = t.history(period=period, interval=interval, auto_adjust=True)
+
+        if hist.empty:
+            return _store(key, None)
+
+        # Format mirip Yahoo Finance chart API
+        timestamps = [int(ts.timestamp()) for ts in hist.index]
+        data = {
+            "timestamp": timestamps,
+            "indicators": {
+                "quote": [{
+                    "open":   hist["Open"].tolist(),
+                    "high":   hist["High"].tolist(),
+                    "low":    hist["Low"].tolist(),
+                    "close":  hist["Close"].tolist(),
+                    "volume": hist["Volume"].tolist(),
+                }]
+            },
+            "meta": {
+                "symbol": ticker,
+                "currency": "IDR",
+                "dataGranularity": interval,
+            }
+        }
+        return _store(key, data)
+    except Exception as e:
+        logger.warning(f"get_chart {ticker}: {e}")
+        return _store(key, None)
 
 
 def safe_raw(data: dict, *keys, default=None):
