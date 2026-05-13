@@ -127,8 +127,13 @@ def format_stock_card(s: StockData, rank: int = None, short: bool = False) -> st
         surprise_dir = "↑" if s.eps_surprise_pct > 0 else "↓"
         lines.append(f"\n📈 EPS Surprise: {surprise_dir} {s.eps_surprise_pct:+.1f}%")
         
+    if s.corporate_actions:
+        lines += ["", "🗓️ *Aksi Korporasi:*"]
+        for ca in s.corporate_actions:
+            lines.append(f"   • {ca}")
+            
     if getattr(s, 'conclusion', ''):
-        lines.append("\n🤖 *AI Insight:*")
+        lines.append("")
         lines.append(s.conclusion)
     
     return "\n".join(lines)
