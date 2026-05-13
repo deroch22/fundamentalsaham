@@ -82,15 +82,17 @@ def format_stock_card(s: StockData, rank: int = None, short: bool = False) -> st
     ]
     
     if short:
-        # Mode ringkas untuk top5
-        lines += [
-            f"   Why {s.score_macro:.0f} | What {s.score_fundamental:.0f} | Where {s.score_technical:.0f} | Who {s.score_bandarmology:.0f} | When {s.score_seasonality:.0f}",
-            f"   {bandar_emoji(s.bandar_status)} Bandar: *{s.bandar_status}* | RSI: {s.rsi:.1f}" if s.rsi else f"   {bandar_emoji(s.bandar_status)} Bandar: *{s.bandar_status}*",
+        # Mode ringkas untuk list (seperti Top 5)
+        r_str = f"{rank}. " if rank else ""
+        lines = [
+            f"*{r_str}{s.ticker.replace('.JK', '')}* ({s.company_name})",
+            f"Harga: Rp {s.current_price}",
+            f"Skor Total: {s.total_score:.1f} / 100",
+            f"Sinyal Bot: {s.signal}",
+            f"Alasan: {getattr(s, 'conclusion', 'Dalam pantauan sistem.')}"
         ]
-        if s.foreign_flow_7d:
-            ff_dir = "📈" if s.foreign_flow_7d > 0 else "📉"
-            lines.append(f"   {ff_dir} Foreign: {fmt_idr(abs(s.foreign_flow_7d))} ({'masuk' if s.foreign_flow_7d > 0 else 'keluar'})")
         return "\n".join(lines)
+
     
     # Mode detail
     lines += [
@@ -124,6 +126,10 @@ def format_stock_card(s: StockData, rank: int = None, short: bool = False) -> st
     if s.eps_surprise_pct is not None:
         surprise_dir = "↑" if s.eps_surprise_pct > 0 else "↓"
         lines.append(f"\n📈 EPS Surprise: {surprise_dir} {s.eps_surprise_pct:+.1f}%")
+        
+    if getattr(s, 'conclusion', ''):
+        lines.append("\n🤖 *AI Insight:*")
+        lines.append(s.conclusion)
     
     return "\n".join(lines)
 
