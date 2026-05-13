@@ -162,13 +162,6 @@ def format_screening_summary(results: list[StockData], title: str = "Hasil Scree
         f"❌ SKIP ({len(skip)}): {len(skip)} saham",
     ]
     
-    if multibagger or watch:
-        lines += ["", "─" * 30, "🏆 *TOP PICKS:*"]
-        top_picks = (multibagger + watch)[:5]
-        for i, s in enumerate(top_picks, 1):
-            lines.append(format_stock_card(s, rank=i, short=True))
-            lines.append("")
-    
     return "\n".join(lines)
 
 
@@ -664,8 +657,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             results = await run_screening_async(tickers, progress_cb=on_progress)
             text = format_screening_summary(results[:5], "🏆 Top 5 Hari Ini")
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+            
+            top_picks = [s for s in results if "MULTI" in s.signal or "WATCH" in s.signal][:5]
+            for i, s in enumerate(top_picks, 1):
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=format_stock_card(s, rank=i, short=False),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                await asyncio.sleep(0.5)
+                
             back = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="main_menu")]])
-            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+            await context.bot.send_message(chat_id=query.message.chat_id, text="Selesai ✅", reply_markup=back)
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}")
 
@@ -989,12 +993,12 @@ async def daily_morning_push(context: ContextTypes.DEFAULT_TYPE):
         text = format_screening_summary(results, "🌅 Morning Alert — Top Picks Hari Ini")
         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
         
-        # Kirim detail tiap MULTI-BAGGER
-        top = [s for s in results if "MULTI" in s.signal][:3]
-        for s in top:
+        # Kirim detail tiap saham (Top 5)
+        top = [s for s in results if "MULTI" in s.signal or "WATCH" in s.signal][:5]
+        for i, s in enumerate(top, 1):
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=format_stock_card(s),
+                text=format_stock_card(s, rank=i, short=False),
                 parse_mode=ParseMode.MARKDOWN
             )
             await asyncio.sleep(1)
