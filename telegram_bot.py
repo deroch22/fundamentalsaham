@@ -207,13 +207,33 @@ async def run_screening_async(
 
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏆 Top 5 Hari Ini", callback_data="top5"),
-         InlineKeyboardButton("⚡ Quick Scan", callback_data="quick")],
-        [InlineKeyboardButton("📊 Full Scan 100 Saham", callback_data="scan")],
-        [InlineKeyboardButton("🏦 Cek Bandar", callback_data="menu_bandar"),
-         InlineKeyboardButton("🔍 Cek Saham", callback_data="menu_cek")],
-        [InlineKeyboardButton("🎯 Filter & Screener", callback_data="menu_filter")],
-        [InlineKeyboardButton("❓ Help", callback_data="help")],
+        [InlineKeyboardButton("💸 TRADING (Jangka Pendek)", callback_data="menu_trading")],
+        [InlineKeyboardButton("💰 LONG TERM (Investasi)", callback_data="menu_longterm")],
+        [InlineKeyboardButton("🔍 Cek 1 Saham", callback_data="menu_cek"),
+         InlineKeyboardButton("🏦 Cek Bandar", callback_data="menu_bandar")],
+        [InlineKeyboardButton("❓ Help", callback_data="help"),
+         InlineKeyboardButton("📊 Status", callback_data="status")],
+    ])
+
+def trading_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔥 Top Gainer Predict", callback_data="top_gainer_predict")],
+        [InlineKeyboardButton("⚡ Top 5 Momentum", callback_data="top5"),
+         InlineKeyboardButton("📊 Quick Scan", callback_data="quick")],
+        [InlineKeyboardButton("🟢 Bandar Akumulasi", callback_data="filter_accum"),
+         InlineKeyboardButton("💰 Asing Masuk", callback_data="filter_foreign")],
+        [InlineKeyboardButton("🎯 Filter Lanjutan", callback_data="menu_filter")],
+        [InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")],
+    ])
+
+def longterm_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💸 Dividen Terbaik", callback_data="filter_dividen")],
+        [InlineKeyboardButton("💎 Value Stock (ROE>20% PER<15)", callback_data="filter_value")],
+        [InlineKeyboardButton("📈 Full Scan Fundamental", callback_data="scan")],
+        [InlineKeyboardButton("🏢 Filter Sektor", callback_data="menu_sektor")],
+        [InlineKeyboardButton("🎯 Filter Lanjutan", callback_data="menu_filter")],
+        [InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")],
     ])
 
 def filter_menu_keyboard():
@@ -637,6 +657,134 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="main_menu")]])
         )
+
+    elif data == "menu_trading":
+        await query.edit_message_text(
+            "⚡ *TRADING MODE — Jangka Pendek*\n\n"
+            "Fokus: Momentum, Teknikal, Bandarmologi\n"
+            "Cocok untuk swing trade 1-14 hari.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=trading_menu_keyboard()
+        )
+
+    elif data == "menu_longterm":
+        await query.edit_message_text(
+            "💰 *LONG TERM MODE — Investasi*\n\n"
+            "Fokus: Fundamental, Dividen, Value Stock\n"
+            "Cocok untuk hold 6 bulan - beberapa tahun.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=longterm_menu_keyboard()
+        )
+
+    elif data == "filter_accum":
+        await query.edit_message_text("⏳ Cari saham bandar AKUMULASI...")
+        try:
+            from pre_filter import MANDATORY_TICKERS
+            tickers = [f"{t}.JK" for t in MANDATORY_TICKERS]
+            results = await run_screening_async(tickers)
+            fc = FilterCriteria(bandar_status="ACCUMULATING")
+            filtered = apply_filters(results, fc)
+            text = format_screening_summary(filtered or results[:5], "🟢 Bandar Akumulasi")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu", callback_data="menu_trading")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "top_gainer_predict":
+        await query.edit_message_text(
+            "🔥 *Top Gainer Predict*\n\n"
+            "Menganalisis saham trending + top gainer\n"
+            "dengan filter bandar ACCUMULATING...\n\n"
+            "⏳ Proses ~60 detik...",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        try:
+            # Ambil data top gainer + trending dari IDX API
+            top_gainers_raw = await asyncio.get_event_loop().run_in_executor(
+                None, idx_client.get_top_gainers
+            )
+            trending_raw = await asyncio.get_event_loop().run_in_executor(
+                None, idx_client.get_trending
+            )
+            
+            # Kumpulkan ticker kandidat
+            candidates = set()
+            if top_gainers_raw:
+                gainers = top_gainers_raw if isinstance(top_gainers_raw, list) else top_gainers_raw.get("stocks", [])
+                for g in gainers[:15]:
+                    sym = g.get("symbol") or g.get("ticker", "")
+                    if sym: candidates.add(sym.replace(".JK", ""))
+            if trending_raw:
+                trendings = trending_raw if isinstance(trending_raw, list) else trending_raw.get("stocks", [])
+                for t in trendings[:10]:
+                    sym = t.get("symbol") or t.get("ticker", "")
+                    if sym: candidates.add(sym.replace(".JK", ""))
+            
+            if not candidates:
+                await query.edit_message_text(
+                    "⚠️ Tidak bisa ambil data gainer hari ini (Market tutup atau API limit)."
+                    "\nCoba lagi saat jam bursa buka (09:00 - 15:00 WIB).",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Trading Menu", callback_data="menu_trading")]])
+                )
+                return
+
+            # Scan & analisis kandidat
+            tickers = [f"{t}.JK" for t in list(candidates)[:20]]
+            await query.edit_message_text(
+                f"🔥 *Top Gainer Predict*\n\n"
+                f"Menganalisis {len(tickers)} kandidat saham...\n"
+                f"⏳ Sebentar lagi!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            results = await run_screening_async(tickers)
+            
+            # Filter: bandar accumulating atau score tinggi
+            from filter_engine import FilterCriteria, apply_filters
+            fc_accum = FilterCriteria(bandar_status="ACCUMULATING")
+            filtered = apply_filters(results, fc_accum)
+            if not filtered:
+                filtered = sorted(results, key=lambda x: x.score_technical + x.score_bandarmology, reverse=True)[:5]
+            
+            # Kirim summary
+            text = format_screening_summary(filtered[:5], "🔥 Top Gainer Predict")
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+            
+            # Kirim detail per saham
+            for i, s in enumerate(filtered[:5], 1):
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=format_stock_card(s, rank=i, short=False),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                await asyncio.sleep(0.5)
+            
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("⚡ Trading Menu", callback_data="menu_trading")]])
+            await context.bot.send_message(chat_id=query.message.chat_id, text="Selesai ✅", reply_markup=back)
+
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
+
+    elif data == "filter_dividen":
+        await query.edit_message_text("⏳ Cari saham dividen terbaik (Yield > 4%)...")
+        try:
+            from pre_filter import MANDATORY_TICKERS
+            tickers = [f"{t}.JK" for t in MANDATORY_TICKERS]
+            results = await run_screening_async(tickers)
+            # Filter saham yang bayar dividen (dividend_yield > 4%)
+            filtered = [s for s in results if s.dividend_yield and s.dividend_yield > 4.0]
+            filtered.sort(key=lambda x: x.dividend_yield or 0, reverse=True)
+            text = format_screening_summary(filtered[:10] or results[:5], "💸 Saham Dividen Terbaik")
+            back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Long Term Menu", callback_data="menu_longterm")]])
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back)
+            for i, s in enumerate(filtered[:5], 1):
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=format_stock_card(s, rank=i, short=False),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}")
 
     # Screening actions
     elif data == "top5":
