@@ -10,6 +10,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from api_client import _cache, _cached, _store
+
 IDX_API_KEY = "579e737afemshf2a850aeb8c8d67p1fc4dbjsnf3d2389897ab"
 IDX_HOST = "indonesia-stock-exchange-idx.p.rapidapi.com"
 
@@ -201,7 +203,6 @@ def get_all_corporate_actions() -> dict:
     Di-cache 12 jam (43200 detik) untuk mengurangi request 429.
     """
     key = "global_corp_actions"
-    from .api_client import _cache, _cached, _store
     cached = _cached(key, ttl=43200)
     if cached is not None:
         return cached
