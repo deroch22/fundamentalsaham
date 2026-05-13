@@ -135,10 +135,21 @@ def format_screening_summary(results: list[StockData], title: str = "Hasil Scree
     skip = [s for s in results if "SKIP" in s.signal]
     
     now = datetime.now().strftime("%d %b %Y %H:%M WIB")
+    
+    if not results:
+        lines = [
+            f"📊 *{title}*",
+            f"🕐 {now}",
+            f"",
+            f"⚠️ *Total: 0 saham yang lolos kriteria.*",
+            f"Kondisi market mungkin sedang tidak mendukung kriteria filter ini, atau coba filter lain."
+        ]
+        return "\n".join(lines)
+
     lines = [
         f"📊 *{title}*",
         f"🕐 {now}",
-        f"Total: {len(results)} saham",
+        f"Total Lolos Filter: {len(results)} saham",
         f"",
         f"🚀 MULTI-BAGGER ({len(multibagger)}): {', '.join(s.ticker.replace('.JK','') for s in multibagger) or 'Tidak ada'}",
         f"👀 WATCH ({len(watch)}): {', '.join(s.ticker.replace('.JK','') for s in watch) or 'Tidak ada'}",
