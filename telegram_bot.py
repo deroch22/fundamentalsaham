@@ -693,27 +693,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "top_gainer_predict":
         await query.edit_message_text(
             "🔥 *Top Gainer Predict*\n\n"
-            "🔍 Scanning seluruh watchlist untuk sinyal *pre-pump*:\n"
+            "🔍 Scanning universe luas (trending + movers + watchlist):\n"
             "  • 🟢 Bandar sedang Akumulasi\n"
             "  • 📉 RSI Oversold (< 40) — siap rebound\n"
             "  • ⚡ MACD sinyal BUY\n"
-            "  • 💰 Foreign Net BUY 7 hari\n"
-            "  • 📊 Volume spike tidak wajar\n\n"
-            "⏳ Proses ~2-3 menit...",
+            "  • 💰 Foreign Net BUY 7 hari\n\n"
+            "⏳ Membangun universe saham...",
             parse_mode=ParseMode.MARKDOWN
         )
         try:
-            from pre_filter import MANDATORY_TICKERS
-            tickers = [f"{t}.JK" for t in MANDATORY_TICKERS]
-            
-            # Progress update
+            # Gunakan build_filtered_universe: Trending + Movers + Mandatory (~70-80 saham)
+            tickers = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: build_filtered_universe(max_stocks=80)
+            )
+            total_scan = len(tickers)
+
+            await query.edit_message_text(
+                f"🔥 *Top Gainer Predict*\n\n"
+                f"Universe: *{total_scan} saham* (trending + movers + blue chip)\n"
+                f"Scanning sinyal pre-pump...\n\n"
+                f"`[░░░░░░░░░░] 0/{total_scan}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
             async def on_progress_pg(done, total, ticker):
                 pct = done / total
                 bar = '█' * int(pct * 10) + '░' * (10 - int(pct * 10))
                 try:
                     await query.edit_message_text(
                         f"🔥 *Top Gainer Predict*\n\n"
-                        f"Scanning sinyal pre-pump...\n"
+                        f"Scanning {total} saham...\n"
                         f"`[{bar}] {done}/{total}` ({int(pct*100)}%)\n"
                         f"Terakhir: `{ticker}`",
                         parse_mode=ParseMode.MARKDOWN
@@ -726,71 +735,45 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # ══ PUMP SCORE: Sistem scoring khusus trading ══
             def calc_pump_score(s) -> float:
                 score = 0.0
-                # 1. Bandar Accumulating = sinyal terkuat (40 poin)
                 if "ACCUM" in (s.bandar_status or "").upper():
                     score += 40
                 elif "HOLDING" in (s.bandar_status or "").upper():
                     score += 15
-
-                # 2. RSI Oversold/recovering (25 poin max)
                 if s.rsi:
-                    if s.rsi < 30:
-                        score += 25   # Oversold ekstrem — rebound kuat
-                    elif s.rsi < 40:
-                        score += 20   # Oversold biasa
-                    elif s.rsi < 50:
-                        score += 10   # Netral tapi belum mahal
-
-                # 3. MACD BUY signal (20 poin)
-                if (s.macd_signal or "").upper() == "BUY":
-                    score += 20
-                elif (s.macd_signal or "").upper() == "NEUTRAL":
-                    score += 5
-
-                # 4. Foreign Net BUY (15 poin)
-                if s.foreign_flow_7d and s.foreign_flow_7d > 0:
-                    score += 15
-
-                # 5. Retail Danger LOW = aman dari guyuran (10 poin)
-                if (s.retail_danger or "").upper() == "LOW":
-                    score += 10
-
-                # PENALTI: Red flags kurangi score
+                    if s.rsi < 30:   score += 25
+                    elif s.rsi < 40: score += 20
+                    elif s.rsi < 50: score += 10
+                if (s.macd_signal or "").upper() == "BUY":    score += 20
+                elif (s.macd_signal or "").upper() == "NEUTRAL": score += 5
+                if s.foreign_flow_7d and s.foreign_flow_7d > 0: score += 15
+                if (s.retail_danger or "").upper() == "LOW":  score += 10
                 score -= len(s.red_flags) * 8
-
-                # PENALTI: Distributing = berbahaya
                 if "DIST" in (s.bandar_status or "").upper() or "EXIT" in (s.bandar_status or "").upper():
                     score -= 30
-
                 return round(score, 1)
 
-            # Tambahkan pump_score ke tiap result
             for s in results:
                 s._pump_score = calc_pump_score(s)
 
-            # Sort berdasarkan pump score, ambil top 5
             candidates = sorted(
                 [s for s in results if s._pump_score > 30],
-                key=lambda x: x._pump_score,
-                reverse=True
+                key=lambda x: x._pump_score, reverse=True
             )[:5]
 
             if not candidates:
-                # Fallback: ambil top 5 berdasarkan pump_score apapun
                 candidates = sorted(results, key=lambda x: x._pump_score, reverse=True)[:5]
 
-            # Kirim summary
+            # Header summary
             now = datetime.now().strftime("%d %b %Y %H:%M WIB")
             header = (
                 f"🔥 *Top Gainer Predict — {now}*\n"
-                f"_Saham berpotensi masuk Top Gainers besok/minggu ini_\n\n"
-                f"Berdasarkan sinyal pre-pump:\n"
-                f"🟢 Bandar Akumulasi + RSI Oversold + MACD BUY + Foreign Buy\n"
+                f"_Dari {total_scan} saham, ini 5 kandidat pre-pump terkuat:_\n\n"
+                f"🟢 Akumulasi + RSI Oversold + MACD BUY + Foreign Buy\n"
                 f"{'─' * 30}\n"
             )
             await query.edit_message_text(header, parse_mode=ParseMode.MARKDOWN)
 
-            # Kirim detail per saham dengan pump score
+            # Kirim detail per saham
             for i, s in enumerate(candidates, 1):
                 card = format_stock_card(s, rank=i, short=False)
                 pump_info = (
@@ -804,6 +787,47 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN
                 )
                 await asyncio.sleep(0.5)
+
+            # ══ REKOMENDASI ALOKASI PORTOFOLIO ══
+            try:
+                from config import GEMINI_API_KEY
+                from google import genai as _genai
+                _gclient = _genai.Client(api_key=GEMINI_API_KEY)
+
+                porto_prompt = (
+                    "Kamu adalah manajer investasi trading jangka pendek profesional.\n"
+                    "Berikut adalah 5 kandidat top gainer predict hari ini:\n\n"
+                )
+                for i, s in enumerate(candidates, 1):
+                    porto_prompt += (
+                        f"{i}. {s.ticker.replace('.JK','')} — {s.company_name}\n"
+                        f"   Harga: Rp {s.current_price:,.0f} | Pump Score: {s._pump_score:.0f}/110\n"
+                        f"   Bandar: {s.bandar_status} | RSI: {s.rsi} | MACD: {s.macd_signal}\n"
+                        f"   Skor 5D: {s.total_score}/100\n\n"
+                    )
+                porto_prompt += (
+                    "Buatkan rekomendasi pembagian portofolio trading (total 100%) dalam bahasa Indonesia yang:\n"
+                    "1. Mudah dipahami pemula\n"
+                    "2. Jelaskan alasan alokasi tiap saham (1-2 kalimat)\n"
+                    "3. Sertakan horizon waktu (berapa hari hold)\n"
+                    "4. Berikan warning risiko 1 kalimat\n"
+                    "Format: emoji + nama saham + persentase + alasan singkat"
+                )
+
+                porto_resp = _gclient.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=porto_prompt
+                )
+                porto_text = porto_resp.text.strip() if porto_resp and porto_resp.text else None
+
+                if porto_text:
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"💼 *Rekomendasi Alokasi Portofolio:*\n\n{porto_text}",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            except Exception as pe:
+                logger.warning(f"Porto allocation error: {pe}")
 
             back = InlineKeyboardMarkup([[InlineKeyboardButton("⚡ Trading Menu", callback_data="menu_trading")]])
             await context.bot.send_message(chat_id=query.message.chat_id, text="Selesai ✅", reply_markup=back)
