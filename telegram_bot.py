@@ -693,76 +693,124 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "top_gainer_predict":
         await query.edit_message_text(
             "🔥 *Top Gainer Predict*\n\n"
-            "Menganalisis saham trending + top gainer\n"
-            "dengan filter bandar ACCUMULATING...\n\n"
-            "⏳ Proses ~60 detik...",
+            "🔍 Scanning seluruh watchlist untuk sinyal *pre-pump*:\n"
+            "  • 🟢 Bandar sedang Akumulasi\n"
+            "  • 📉 RSI Oversold (< 40) — siap rebound\n"
+            "  • ⚡ MACD sinyal BUY\n"
+            "  • 💰 Foreign Net BUY 7 hari\n"
+            "  • 📊 Volume spike tidak wajar\n\n"
+            "⏳ Proses ~2-3 menit...",
             parse_mode=ParseMode.MARKDOWN
         )
         try:
-            # Ambil data top gainer + trending dari IDX API
-            top_gainers_raw = await asyncio.get_event_loop().run_in_executor(
-                None, idx_client.get_top_gainers
-            )
-            trending_raw = await asyncio.get_event_loop().run_in_executor(
-                None, idx_client.get_trending
-            )
+            from pre_filter import MANDATORY_TICKERS
+            tickers = [f"{t}.JK" for t in MANDATORY_TICKERS]
             
-            # Kumpulkan ticker kandidat
-            candidates = set()
-            if top_gainers_raw:
-                gainers = top_gainers_raw if isinstance(top_gainers_raw, list) else top_gainers_raw.get("stocks", [])
-                for g in gainers[:15]:
-                    sym = g.get("symbol") or g.get("ticker", "")
-                    if sym: candidates.add(sym.replace(".JK", ""))
-            if trending_raw:
-                trendings = trending_raw if isinstance(trending_raw, list) else trending_raw.get("stocks", [])
-                for t in trendings[:10]:
-                    sym = t.get("symbol") or t.get("ticker", "")
-                    if sym: candidates.add(sym.replace(".JK", ""))
-            
-            if not candidates:
-                await query.edit_message_text(
-                    "⚠️ Tidak bisa ambil data gainer hari ini (Market tutup atau API limit)."
-                    "\nCoba lagi saat jam bursa buka (09:00 - 15:00 WIB).",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Trading Menu", callback_data="menu_trading")]])
-                )
-                return
+            # Progress update
+            async def on_progress_pg(done, total, ticker):
+                pct = done / total
+                bar = '█' * int(pct * 10) + '░' * (10 - int(pct * 10))
+                try:
+                    await query.edit_message_text(
+                        f"🔥 *Top Gainer Predict*\n\n"
+                        f"Scanning sinyal pre-pump...\n"
+                        f"`[{bar}] {done}/{total}` ({int(pct*100)}%)\n"
+                        f"Terakhir: `{ticker}`",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception:
+                    pass
 
-            # Scan & analisis kandidat
-            tickers = [f"{t}.JK" for t in list(candidates)[:20]]
-            await query.edit_message_text(
-                f"🔥 *Top Gainer Predict*\n\n"
-                f"Menganalisis {len(tickers)} kandidat saham...\n"
-                f"⏳ Sebentar lagi!",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            results = await run_screening_async(tickers)
-            
-            # Filter: bandar accumulating atau score tinggi
-            from filter_engine import FilterCriteria, apply_filters
-            fc_accum = FilterCriteria(bandar_status="ACCUMULATING")
-            filtered = apply_filters(results, fc_accum)
-            if not filtered:
-                filtered = sorted(results, key=lambda x: x.score_technical + x.score_bandarmology, reverse=True)[:5]
-            
+            results = await run_screening_async(tickers, progress_cb=on_progress_pg)
+
+            # ══ PUMP SCORE: Sistem scoring khusus trading ══
+            def calc_pump_score(s) -> float:
+                score = 0.0
+                # 1. Bandar Accumulating = sinyal terkuat (40 poin)
+                if "ACCUM" in (s.bandar_status or "").upper():
+                    score += 40
+                elif "HOLDING" in (s.bandar_status or "").upper():
+                    score += 15
+
+                # 2. RSI Oversold/recovering (25 poin max)
+                if s.rsi:
+                    if s.rsi < 30:
+                        score += 25   # Oversold ekstrem — rebound kuat
+                    elif s.rsi < 40:
+                        score += 20   # Oversold biasa
+                    elif s.rsi < 50:
+                        score += 10   # Netral tapi belum mahal
+
+                # 3. MACD BUY signal (20 poin)
+                if (s.macd_signal or "").upper() == "BUY":
+                    score += 20
+                elif (s.macd_signal or "").upper() == "NEUTRAL":
+                    score += 5
+
+                # 4. Foreign Net BUY (15 poin)
+                if s.foreign_flow_7d and s.foreign_flow_7d > 0:
+                    score += 15
+
+                # 5. Retail Danger LOW = aman dari guyuran (10 poin)
+                if (s.retail_danger or "").upper() == "LOW":
+                    score += 10
+
+                # PENALTI: Red flags kurangi score
+                score -= len(s.red_flags) * 8
+
+                # PENALTI: Distributing = berbahaya
+                if "DIST" in (s.bandar_status or "").upper() or "EXIT" in (s.bandar_status or "").upper():
+                    score -= 30
+
+                return round(score, 1)
+
+            # Tambahkan pump_score ke tiap result
+            for s in results:
+                s._pump_score = calc_pump_score(s)
+
+            # Sort berdasarkan pump score, ambil top 5
+            candidates = sorted(
+                [s for s in results if s._pump_score > 30],
+                key=lambda x: x._pump_score,
+                reverse=True
+            )[:5]
+
+            if not candidates:
+                # Fallback: ambil top 5 berdasarkan pump_score apapun
+                candidates = sorted(results, key=lambda x: x._pump_score, reverse=True)[:5]
+
             # Kirim summary
-            text = format_screening_summary(filtered[:5], "🔥 Top Gainer Predict")
-            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-            
-            # Kirim detail per saham
-            for i, s in enumerate(filtered[:5], 1):
+            now = datetime.now().strftime("%d %b %Y %H:%M WIB")
+            header = (
+                f"🔥 *Top Gainer Predict — {now}*\n"
+                f"_Saham berpotensi masuk Top Gainers besok/minggu ini_\n\n"
+                f"Berdasarkan sinyal pre-pump:\n"
+                f"🟢 Bandar Akumulasi + RSI Oversold + MACD BUY + Foreign Buy\n"
+                f"{'─' * 30}\n"
+            )
+            await query.edit_message_text(header, parse_mode=ParseMode.MARKDOWN)
+
+            # Kirim detail per saham dengan pump score
+            for i, s in enumerate(candidates, 1):
+                card = format_stock_card(s, rank=i, short=False)
+                pump_info = (
+                    f"\n🎯 *Pump Score: {s._pump_score:.0f}/110*\n"
+                    f"   Bandar: {s.bandar_status} | RSI: {s.rsi or 'N/A'} | MACD: {s.macd_signal or 'N/A'}\n"
+                    f"   Foreign: {'📈 NET BUY' if s.foreign_flow_7d and s.foreign_flow_7d > 0 else '📉 NET SELL'}"
+                )
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
-                    text=format_stock_card(s, rank=i, short=False),
+                    text=card + pump_info,
                     parse_mode=ParseMode.MARKDOWN
                 )
                 await asyncio.sleep(0.5)
-            
+
             back = InlineKeyboardMarkup([[InlineKeyboardButton("⚡ Trading Menu", callback_data="menu_trading")]])
             await context.bot.send_message(chat_id=query.message.chat_id, text="Selesai ✅", reply_markup=back)
 
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}")
+
 
     elif data == "filter_dividen":
         await query.edit_message_text("⏳ Cari saham dividen terbaik (Yield > 4%)...")
