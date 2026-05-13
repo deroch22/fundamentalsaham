@@ -138,6 +138,9 @@ class StockData:
     eps_forecast_2026: Optional[float] = None
     eps_forecast_2027: Optional[float] = None
     eps_surprise_pct: Optional[float] = None
+    
+    # ═══ NEW: Corporate Actions ═══
+    corporate_actions: list = field(default_factory=list)
     next_earnings_date: str = ""
 
     # ═══ NEW: Insight Scores - from IDX API ═══
@@ -265,8 +268,18 @@ def fetch_stock_data(ticker: str) -> StockData:
             bscore += 3
             
         stock.score_bandarmology = round(max(0, min(bscore, 15)), 1)
+        
+    # 1E. Corporate Actions Calendar
+    try:
+        corp_cal = idx_client.get_all_corporate_actions()
+        if corp_cal and idx_ticker in corp_cal:
+            stock.corporate_actions = corp_cal[idx_ticker]
+            for action in stock.corporate_actions:
+                stock.notes.append(f"Aksi Korporasi Terdekat: {action}")
+    except Exception as e:
+        logger.warning(f"Gagal get corporate actions untuk {idx_ticker}: {e}")
     
-    # 1D. Earnings Forecast
+    # 1F. Earnings Forecast
     earnings_idx = idx_client.get_earnings(idx_ticker)
     if earnings_idx:
         latest = earnings_idx.get("latestActual", {})
@@ -516,6 +529,8 @@ def _generate_conclusion(s: StockData) -> str:
     if s.foreign_flow_7d:
         ff = f"Net {'BUY' if s.foreign_flow_7d > 0 else 'SELL'} Rp {abs(s.foreign_flow_7d)/1e9:.1f}M (7 hari)"
 
+    corp_str = "\\n- ".join(s.corporate_actions) if s.corporate_actions else "Tidak ada"
+
     prompt = f"""
 Kamu adalah mentor saham yang menjelaskan ke PEMULA (orang yang baru belajar saham).
 Buatkan kesimpulan untuk saham {s.ticker} ({s.company_name}).
@@ -539,6 +554,7 @@ DATA ANALISIS:
 - Retail Danger: {s.retail_danger}
 
 - Seasonality bulan {month}: Win rate {s.seasonality_win_rate}%
+- Aksi Korporasi Terdekat: {corp_str}
 - Red Flags: {', '.join(s.red_flags) if s.red_flags else 'Tidak ada'}
 
 Skor Total: {s.total_score}/100

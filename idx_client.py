@@ -194,20 +194,66 @@ def get_global_impact() -> dict | None:
     time.sleep(REQUEST_DELAY)
     return data
 
+def get_all_corporate_actions() -> dict:
+    """
+    Mengambil data kalender Right Issue, Stock Split, dan Dividend.
+    Return dictionary: { 'BBCA': ['Dividend: Rp 50 (Cum: 2026-05-20)'], 'PYFA': ['Right Issue (Cum: 2026-07-07)'] }
+    Di-cache 12 jam (43200 detik) untuk mengurangi request 429.
+    """
+    key = "global_corp_actions"
+    from .api_client import _cache, _cached, _store
+    cached = _cached(key, ttl=43200)
+    if cached is not None:
+        return cached
+
+    corp_actions = {}
+    endpoints = {
+        "Right Issue": ("/api/calendar/right-issue", "rightissue"),
+        "Stock Split": ("/api/calendar/stock-split", "stocksplit"),
+        "Dividend": ("/api/calendar/dividend", "dividend"),
+    }
+
+    for action_name, (ep, datakey) in endpoints.items():
+        time.sleep(2.0) # Hindari 429 rate limit
+        res = _request(ep)
+        if not res or "data" not in res or datakey not in res["data"]:
+            continue
+        
+        items = res["data"][datakey]
+        for item in items:
+            sym = item.get("company_symbol", "")
+            if not sym:
+                continue
+            
+            cumdate = item.get(f"{datakey}_cumdate", "")
+            if not cumdate:
+                continue
+                
+            if sym not in corp_actions:
+                corp_actions[sym] = []
+                
+            if action_name == "Dividend":
+                val = item.get("dividend_value_formatted") or item.get("dividend_value", "")
+                corp_actions[sym].append(f"Dividend: {val} (Cum: {cumdate})")
+            elif action_name == "Stock Split":
+                ratio = item.get("stocksplit_ratio", "")
+                corp_actions[sym].append(f"Stock Split: {ratio} (Cum: {cumdate})")
+            elif action_name == "Right Issue":
+                corp_actions[sym].append(f"Right Issue (Cum: {cumdate})")
+
+    return _store(key, corp_actions)
 
 def get_dividend_calendar() -> dict | None:
-    """Kalender dividen."""
+    """Kalender dividen (raw endpoint)."""
     data = _request("/api/calendar/dividend")
     time.sleep(REQUEST_DELAY)
     return data
-
 
 def get_insider_screening() -> dict | None:
     """Screening insider trading seluruh emiten."""
     data = _request("/api/analysis/insider-screening")
     time.sleep(REQUEST_DELAY)
     return data
-
 
 def get_trending() -> dict | None:
     """Saham trending hari ini."""
